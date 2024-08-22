@@ -184,10 +184,16 @@ module HexaPDF
         # Creates a signer information structure containing the actual meat of the whole CMS object.
         def create_signer_info(signature, signed_attrs, unsigned_attrs = nil)
           certificate_pkey_algorithm = @certificate.public_key.oid
-          signature_algorithm = if certificate_pkey_algorithm == 'rsaEncryption'
+          signature_algorithm = case certificate_pkey_algorithm
+                                when 'rsaEncryption'
                                   sequence(               # signatureAlgorithm
                                     oid('rsaEncryption'), #   algorithmID
                                     null                  #   params
+                                  )
+                                when 'id-ecPublicKey'
+                                  sequence(                # signatureAlgorithm
+                                    oid('id-ecPublicKey'), #   algorithmID
+                                    null                   #   params
                                   )
                                 else
                                   raise HexaPDF::Error, "Unsupported key type/signature algorithm"
@@ -273,6 +279,7 @@ module HexaPDF
           'sha384' => '2.16.840.1.101.3.4.2.2',
           'sha512' => '2.16.840.1.101.3.4.2.3',
           'rsaEncryption' => '1.2.840.113549.1.1.1',
+          'id-ecPublicKey' => '1.2.840.10045.2.1',
           'id-aa-signingCertificate' => '1.2.840.113549.1.9.16.2.12',
           'id-aa-timeStampToken' => '1.2.840.113549.1.9.16.2.14',
           'id-aa-signingCertificateV2' => '1.2.840.113549.1.9.16.2.47',

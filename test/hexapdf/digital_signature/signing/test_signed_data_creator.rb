@@ -69,15 +69,6 @@ describe HexaPDF::DigitalSignature::Signing::SignedDataCreator do
       assert_equal('1.2.840.113549.1.7.1', @structure.value[2].value[0].value)
     end
 
-    it "contains the assigned certificates" do
-      assert_equal(2, @structure.value[3].value.size)
-      assert_equal(0, @structure.value[3].tag)
-      assert_equal(:IMPLICIT, @structure.value[3].tagging)
-      assert_equal(:CONTEXT_SPECIFIC, @structure.value[3].tag_class)
-      assert_equal([CERTIFICATES.signer_certificate, CERTIFICATES.ca_certificate],
-                   @structure.value[3].value)
-    end
-
     it "contains a single signer info structure" do
       assert_equal(1, @structure.value[4].value.size)
     end
@@ -94,11 +85,6 @@ describe HexaPDF::DigitalSignature::Signing::SignedDataCreator do
 
     it "sets the correct version" do
       assert_equal(1, @structure.value[0].value)
-    end
-
-    it "uses issuer and serial for the signer identifer" do
-      assert_equal(CERTIFICATES.signer_certificate.issuer, @structure.value[1].value[0])
-      assert_equal(CERTIFICATES.signer_certificate.serial, @structure.value[1].value[1].value)
     end
 
     it "contains a reference to the used digest algorithm" do
@@ -122,50 +108,12 @@ describe HexaPDF::DigitalSignature::Signing::SignedDataCreator do
         attr = @structure.value[3].value.find {|obj| obj.value[0].value == '1.2.840.113549.1.9.4' }
         assert_equal(OpenSSL::Digest.digest('SHA256', 'data'), attr.value[1].value[0].value)
       end
-
-      it "contains the signing certificate attribute" do
-        attr = @structure.value[3].value.find {|obj| obj.value[0].value == '1.2.840.113549.1.9.16.2.47' }
-        signing_cert = attr.value[1].value[0]
-        assert_equal(1, signing_cert.value.size)
-        assert_equal(1, signing_cert.value[0].value.size)
-        assert_equal(2, signing_cert.value[0].value[0].value.size)
-        assert_equal(OpenSSL::Digest.digest('sha256', CERTIFICATES.signer_certificate.to_der),
-                     signing_cert.value[0].value[0].value[0].value)
-        assert_equal(2, signing_cert.value[0].value[0].value[1].value.size)
-        assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value.size)
-        assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value[0].value.size)
-        assert_equal(4, signing_cert.value[0].value[0].value[1].value[0].value[0].tag)
-        assert_equal(:IMPLICIT, signing_cert.value[0].value[0].value[1].value[0].value[0].tagging)
-        assert_equal(:CONTEXT_SPECIFIC, signing_cert.value[0].value[0].value[1].value[0].value[0].tag_class)
-        assert_equal(CERTIFICATES.signer_certificate.issuer,
-                     signing_cert.value[0].value[0].value[1].value[0].value[0].value[0])
-        assert_equal(CERTIFICATES.signer_certificate.serial,
-                     signing_cert.value[0].value[0].value[1].value[1].value)
-      end
-    end
-
-    it "contains the signature algorithm reference" do
-      assert_equal('1.2.840.113549.1.1.1', @structure.value[4].value[0].value)
-      assert_nil(@structure.value[4].value[1].value)
-    end
-
-    it "contains the signature itself" do
-      to_sign = OpenSSL::ASN1::Set.new(@structure.value[3].value).to_der
-      assert_equal(CERTIFICATES.signer_key.sign('SHA256', to_sign), @structure.value[5].value)
     end
 
     it "fails if the signature algorithm is not supported" do
       @signed_data.certificate = CERTIFICATES.dsa_signer_certificate
       @signed_data.key = CERTIFICATES.dsa_signer_key
       assert_raises(HexaPDF::Error) { @signed_data.create("data") }
-    end
-
-    it "can use a different digest algorithm" do
-      @signed_data.digest_algorithm = 'sha384'
-      structure = @signed_data.create("data").value[1].value[4].value[0]
-      to_sign = OpenSSL::ASN1::Set.new(structure.value[3].value).to_der
-      assert_equal('2.16.840.1.101.3.4.2.2', structure.value[2].value[0].value)
-      assert_equal(CERTIFICATES.signer_key.sign('SHA384', to_sign), structure.value[5].value)
     end
 
     it "allows delegating the signature to a provided signing block" do
@@ -229,6 +177,152 @@ describe HexaPDF::DigitalSignature::Signing::SignedDataCreator do
     it "doesn't include the signing-time attribute" do
       signer_info = @signed_data.create("data", type: :pades).value[1].value[4].value[0]
       refute(signer_info.value[3].value.find {|obj| obj.value[0].value == 'signingTime' })
+    end
+  end
+
+  describe "RSA signatures" do
+    describe "signed data structure" do
+      before do
+        @structure = @signed_data.create("data").value[1]
+      end
+
+      it "contains the assigned certificates" do
+        assert_equal(2, @structure.value[3].value.size)
+        assert_equal(0, @structure.value[3].tag)
+        assert_equal(:IMPLICIT, @structure.value[3].tagging)
+        assert_equal(:CONTEXT_SPECIFIC, @structure.value[3].tag_class)
+        assert_equal([CERTIFICATES.signer_certificate, CERTIFICATES.ca_certificate],
+                     @structure.value[3].value)
+      end
+    end
+
+    describe "signer info" do
+      before do
+        @structure = @signed_data.create("data").value[1].value[4].value[0]
+      end
+
+      it "uses issuer and serial for the signer identifer" do
+        assert_equal(CERTIFICATES.signer_certificate.issuer, @structure.value[1].value[0])
+        assert_equal(CERTIFICATES.signer_certificate.serial, @structure.value[1].value[1].value)
+      end
+
+      describe "signed attributes" do
+        it "contains the signing certificate attribute" do
+          attr = @structure.value[3].value.find {|obj| obj.value[0].value == '1.2.840.113549.1.9.16.2.47' }
+          signing_cert = attr.value[1].value[0]
+          assert_equal(1, signing_cert.value.size)
+          assert_equal(1, signing_cert.value[0].value.size)
+          assert_equal(2, signing_cert.value[0].value[0].value.size)
+          assert_equal(OpenSSL::Digest.digest('sha256', CERTIFICATES.signer_certificate.to_der),
+                       signing_cert.value[0].value[0].value[0].value)
+          assert_equal(2, signing_cert.value[0].value[0].value[1].value.size)
+          assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value.size)
+          assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value[0].value.size)
+          assert_equal(4, signing_cert.value[0].value[0].value[1].value[0].value[0].tag)
+          assert_equal(:IMPLICIT, signing_cert.value[0].value[0].value[1].value[0].value[0].tagging)
+          assert_equal(:CONTEXT_SPECIFIC, signing_cert.value[0].value[0].value[1].value[0].value[0].tag_class)
+          assert_equal(CERTIFICATES.signer_certificate.issuer,
+                       signing_cert.value[0].value[0].value[1].value[0].value[0].value[0])
+          assert_equal(CERTIFICATES.signer_certificate.serial,
+                       signing_cert.value[0].value[0].value[1].value[1].value)
+        end
+      end
+
+      it "contains the signature algorithm reference" do
+        assert_equal('1.2.840.113549.1.1.1', @structure.value[4].value[0].value)
+        assert_nil(@structure.value[4].value[1].value)
+      end
+
+      it "contains the signature itself" do
+        to_sign = OpenSSL::ASN1::Set.new(@structure.value[3].value).to_der
+        assert_equal(CERTIFICATES.signer_key.sign('SHA256', to_sign), @structure.value[5].value)
+      end
+
+      it "can use a different digest algorithm" do
+        @signed_data.digest_algorithm = 'sha384'
+        structure = @signed_data.create("data").value[1].value[4].value[0]
+        to_sign = OpenSSL::ASN1::Set.new(structure.value[3].value).to_der
+        assert_equal('2.16.840.1.101.3.4.2.2', structure.value[2].value[0].value)
+        assert_equal(CERTIFICATES.signer_key.sign('SHA384', to_sign), structure.value[5].value)
+      end
+    end
+  end
+
+  describe "ECDSA signatures" do
+    before do
+      @klass = HexaPDF::DigitalSignature::Signing::SignedDataCreator
+      @signed_data = @klass.new
+      @signed_data.certificate = CERTIFICATES.ecdsa_signer_certificate
+      @signed_data.key = CERTIFICATES.ecdsa_signer_key
+      @signed_data.certificates = [CERTIFICATES.ca_certificate]
+    end
+
+    describe "signed data structure" do
+      before do
+        @structure = @signed_data.create("data").value[1]
+      end
+
+      it "contains the assigned certificates" do
+        assert_equal(2, @structure.value[3].value.size)
+        assert_equal(0, @structure.value[3].tag)
+        assert_equal(:IMPLICIT, @structure.value[3].tagging)
+        assert_equal(:CONTEXT_SPECIFIC, @structure.value[3].tag_class)
+        assert_equal([CERTIFICATES.ecdsa_signer_certificate, CERTIFICATES.ca_certificate],
+                     @structure.value[3].value)
+      end
+    end
+
+    describe "signer info" do
+      before do
+        @structure = @signed_data.create("data").value[1].value[4].value[0]
+      end
+
+      it "uses issuer and serial for the signer identifer" do
+        assert_equal(CERTIFICATES.ecdsa_signer_certificate.issuer, @structure.value[1].value[0])
+        assert_equal(CERTIFICATES.ecdsa_signer_certificate.serial, @structure.value[1].value[1].value)
+      end
+
+      describe "signed attributes" do
+        it "contains the signing certificate attribute" do
+          attr = @structure.value[3].value.find {|obj| obj.value[0].value == '1.2.840.113549.1.9.16.2.47' }
+          signing_cert = attr.value[1].value[0]
+          assert_equal(1, signing_cert.value.size)
+          assert_equal(1, signing_cert.value[0].value.size)
+          assert_equal(2, signing_cert.value[0].value[0].value.size)
+          assert_equal(OpenSSL::Digest.digest('sha256', CERTIFICATES.ecdsa_signer_certificate.to_der),
+                       signing_cert.value[0].value[0].value[0].value)
+          assert_equal(2, signing_cert.value[0].value[0].value[1].value.size)
+          assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value.size)
+          assert_equal(1, signing_cert.value[0].value[0].value[1].value[0].value[0].value.size)
+          assert_equal(4, signing_cert.value[0].value[0].value[1].value[0].value[0].tag)
+          assert_equal(:IMPLICIT, signing_cert.value[0].value[0].value[1].value[0].value[0].tagging)
+          assert_equal(:CONTEXT_SPECIFIC, signing_cert.value[0].value[0].value[1].value[0].value[0].tag_class)
+          assert_equal(CERTIFICATES.ecdsa_signer_certificate.issuer,
+                       signing_cert.value[0].value[0].value[1].value[0].value[0].value[0])
+          assert_equal(CERTIFICATES.ecdsa_signer_certificate.serial,
+                       signing_cert.value[0].value[0].value[1].value[1].value)
+        end
+      end
+
+      it "contains the signature algorithm reference" do
+        assert_equal('1.2.840.10045.2.1', @structure.value[4].value[0].value)
+        assert_nil(@structure.value[4].value[1].value)
+      end
+
+      it "contains the signature itself" do
+        to_sign = OpenSSL::ASN1::Set.new(@structure.value[3].value).to_der
+        signature = @structure.value[5].value
+        assert(CERTIFICATES.ecdsa_signer_key.verify('SHA256', signature, to_sign))
+      end
+
+      it "can use a different digest algorithm" do
+        @signed_data.digest_algorithm = 'sha384'
+        structure = @signed_data.create("data").value[1].value[4].value[0]
+        to_sign = OpenSSL::ASN1::Set.new(structure.value[3].value).to_der
+        signature = structure.value[5].value
+        assert_equal('2.16.840.1.101.3.4.2.2', structure.value[2].value[0].value)
+        assert(CERTIFICATES.ecdsa_signer_key.verify('SHA384', signature, to_sign))
+      end
     end
   end
 end
